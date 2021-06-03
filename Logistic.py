@@ -50,7 +50,6 @@ path = os.getcwd() + '\\data\\'
 df_train = pd.read_pickle(path + FILE_DF_TRAIN + f"-{COEF}.pkl")
 df_bow = pd.read_pickle(path + FILE_DF_BoW)
 
-
 # %%
 # perform an PCA
 sc = StandardScaler()
