@@ -12,3 +12,6 @@ data/dict_results_API.pkl
 data/sentiment140/training.1600000.processed.noemoticon.csv
 data/TwitterDistantSupervision09.pdf
 Détails déploiement/Déploiement - Microsoft.CognitiveServicesTextAnalyticsWithoutCo-20210529140735.zip
+data/dict_simple.pkl
+word2vec.model
+.gitignore
