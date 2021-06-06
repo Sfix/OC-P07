@@ -9,10 +9,12 @@
 from collections import defaultdict
 import os
 from pathlib import Path
+import json
 import sys
 from gensim.models.word2vec import Word2Vec
 from gensim.parsing.preprocessing import remove_stopwords
 from keras.layers import embeddings
+from keras_preprocessing.text import tokenizer_from_json
 from matplotlib.pyplot import ylabel
 import missingno as msno
 from tensorflow.python.util.nest import _yield_value
@@ -48,7 +50,7 @@ from wordcloud import WordCloud
 from keras.preprocessing.text import Tokenizer
 from keras.preprocessing import sequence
 from keras.models import Sequential
-from keras.layers import Dense, Flatten
+from keras.layers import Dense, Flatten, LSTM
 from keras.layers.embeddings import Embedding
 
 # %%
@@ -68,6 +70,9 @@ COEF = 0.1
 
 # Dictionary size
 TOP_WORDS = 10_000
+# Max length of the embedding vectors. 
+EMBEDDING_LENGTH = 100
+
 # Create the simple dictionary even if it already exists
 CREATE_SIMPLE_DICTIONARY = True
 
@@ -272,75 +277,49 @@ def create_X_y_simple(df, invert_score= True, new_dictionary= CREATE_SIMPLE_DICT
     Returns:
         Turple: (X, y)
     """
-    simple_dictionary = defaultdict(lambda: 0)
     # Check if we go for existing disctionnary or not 
     if (
         not(new_dictionary) 
         and 
-        os.path.exists(Path('./data/')/f"{FILE_DICTIONARY}.pkl")
+        os.path.exists(Path('./data/')/f"{FILE_DICTIONARY}.json")
     ):
-        with open(Path('./data/')/f"{FILE_DICTIONARY}.pkl", 'rb') as pickle_file:
-            simple_dictionary = pickle.load(pickle_file)
+        with open(Path('./data/')/f"{FILE_DICTIONARY}.json", 'r') as json_file:
+            data = json.load(json_file)
+            tokenizer = tokenizer_from_json(data)
     else:
-        # We have to create the dictionary. We use this function so 
-        # we do not have to go with a for-loop. 
-        def create_simple_dictionary(tweet, progress_bar):
-            progress_bar.update()
-            for token in tweet.split(' '):
-                simple_dictionary[token] += 1 
-            return True
-
-        progress_bar = tqdm(
-                            total= len(df),
-                            desc= 'DataFrame',
-                            leave= False
+        # We have to create the tokenizer. 
+        tokenizer = Tokenizer(
+                                lower= True,
+                                split= ' '
         )
-        [
-            create_simple_dictionary(tweet, progress_bar)
-            for tweet in df['clean']
-        ]
-        progress_bar.close()
-        # Translate into DataFrame to rank the words
-        tmp_df = pd.DataFrame(
-                                data= simple_dictionary,
-                                index= ['Frequency']
-        ).T
-        # Delete everything that is less than 5 times
-        mask = tmp_df['Frequency'] >= 1
-        tmp_df = tmp_df.loc[mask]
-        # Sort it
-        tmp_df.sort_values(
-                            by= 'Frequency',
-                            ascending= False, 
-                            inplace= True
-        )
-        # Recall 0 is padding, 1 is Start and 2 is unknown
-        tmp_df['pos'] = np.arange(3, len(tmp_df) + 3, 1)
-        simple_dictionary = {
-                    tmp_df.index[i] : tmp_df.loc[tmp_df.index[i], 'pos']
-                    for i in range(len(tmp_df))
-        }
-        # Save the dictionnary
-        with open(Path('./data/')/f"{FILE_DICTIONARY}.pkl", 'wb') as pickle_file:
-            pickle.dump(
-                        simple_dictionary,
-                        pickle_file, 
-                        protocol= pickle.HIGHEST_PROTOCOL
+        tokenizer.fit_on_texts(df['clean'].values)
+        with open(Path('./data/')/f"{FILE_DICTIONARY}.json", 'w') as json_file:
+            json_file.write(
+                            json.dumps(
+                                        tokenizer.to_json(),
+                                        ensure_ascii= False
+                            )
             )
 
     # We have a dictionary, we translate the clean sentences into 
     # series of numbers
-    df['embedding_simple'] = [
+    df['es'] = [
                                 np.array([
-                                    simple_dictionary[token]
-                                    if token in simple_dictionary.keys() else 2
+                                    tokenizer.word_index[token]
+                                    if token in tokenizer.word_index.keys() else 2
                                     for token in sentence.split(' ')
                                 ],
                                 dtype= np.int32
                                 )
                                 for sentence in df['clean'].values
     ]
-    X = df['embedding_simple'].values
+    X = df['es'].values
+
+    df['embedding_simple'] = tokenizer.texts_to_sequences(df['clean'].values)
+    X = sequence.pad_sequences(
+                                df['embedding_simple'],
+                                maxlen= EMBEDDING_LENGTH,
+    )
     if invert_score:
         y = np.array(
                     [1 if score == 0 else 0 for score in df['score']]
@@ -367,149 +346,7 @@ def create_X_y_simple(df, invert_score= True, new_dictionary= CREATE_SIMPLE_DICT
                                         invert_score= True,
                                         new_dictionary= False
 )
-max_length_sentence = max(
-                            max([len(x) for x in X_train]),
-                            max([len(x) for x in X_validate]),
-                            max([len(x) for x in X_test]),
-)
-
-# Transform entries so they all have the same length
-max_tweet_length = max_length_sentence
-X_train = sequence.pad_sequences(
-                                    X_train,
-                                    maxlen= max_tweet_length
-)
-X_validate = sequence.pad_sequences(
-                                    X_validate,
-                                    maxlen= max_tweet_length
-)
-X_test = sequence.pad_sequences(
-                                X_test,
-                                maxlen= max_tweet_length
-)
-
-# %%
-# Create X and y with the simpliest solution
-def create_X_y_Word2Vec(df, invert_score= True, new_dictionary= CREATE_SIMPLE_DICTIONARY):
-    """With Word2Vec, this function create X and y for the DataFrame.
-    If new_dictionary at False and there is a FILE_DICTIONAY, then it 
-    is loaded. Any word that is not in it will be put as 2.
-
-    Args:
-        df (DataFrame): DataFrame with a feature 'score' to generate y
-        and 'clean' to generate X.
-        invert_score (boolean, optional) : define if the score must be
-        inverted (True) or not (False). Defaults to True
-        new_dictionary (boolean, optional): define if the dictionary
-        is loaded if exists (False) or creted and saved (True). 
-        Defaults to CREATE_SIMPLE_DICTIONARY.
-
-    Returns:
-        Turple: (X, y)
-    """
-    simple_dictionary = defaultdict(lambda: 0)
-    # Check if we go for existing disctionnary or not 
-    if (
-        not(new_dictionary) 
-        and 
-        os.path.exists(Path('./data/')/f"{FILE_DICTIONARY}.pkl")
-    ):
-        with open(Path('./data/')/f"{FILE_DICTIONARY}.pkl", 'rb') as pickle_file:
-            simple_dictionary = pickle.load(pickle_file)
-    else:
-        # Go for multiprocessors
-        cores = multiprocessing.cpu_count()
-        if cores == 1:
-            cores = 2
-        # Define the model
-        word2vec_model = Word2Vec(
-                                    min_count= 2,
-                                    window= 2,
-                                    sample= 6e-5,
-                                    alpha= 0.03,
-                                    negative= 20,
-                                    workers= cores - 1,
-        )
-        word2vec_model.build_vocab(
-                                    df['clean'].split(),
-                                    progress_per= 10_000
-        )
-        word2vec_model.train(
-                                df['clean'],
-                                total_examples= word2vec_model.corpus_count,
-                                epochs= 30,
-                                report_delay= 1 
-        )
-
-
-
-        # Save the dictionnary
-        with open(Path('./data/')/f"{FILE_DICTIONARY}.pkl", 'wb') as pickle_file:
-            pickle.dump(
-                        simple_dictionary,
-                        pickle_file, 
-                        protocol= pickle.HIGHEST_PROTOCOL
-            )
-
-    # We have a dictionary, we translate the clean sentences into 
-    # series of numbers
-    df['embedding_simple'] = [
-                                np.array([
-                                    simple_dictionary[token]
-                                    if token in simple_dictionary.keys() else 2
-                                    for token in sentence.split(' ')
-                                ],
-                                dtype= np.int32
-                                )
-                                for sentence in df['clean'].values
-    ]
-    X = df['embedding_simple'].values
-    if invert_score:
-        y = np.array(
-                    [1 if score == 0 else 0 for score in df['score']]
-        )
-    else:
-        y = np.array(df['score'].values)
-    
-    return (X, y)
-
-
-# Compute the requiered X, y
-(X_train, y_train) = create_X_y_simple(
-                                        df= df_train,
-                                        invert_score= True,
-                                        new_dictionary= True
-)
-(X_validate, y_validate) = create_X_y_simple(
-                                                df= df_validate,
-                                                invert_score= True,
-                                                new_dictionary= False
-)
-(X_test, y_test) = create_X_y_simple(
-                                        df= df_test,
-                                        invert_score= True,
-                                        new_dictionary= False
-)
-max_length_sentence = max(
-                            max([len(x) for x in X_train]),
-                            max([len(x) for x in X_validate]),
-                            max([len(x) for x in X_test]),
-)
-
-# Transform entries so they all have the same length
-max_tweet_length = max_length_sentence
-X_train = sequence.pad_sequences(
-                                    X_train,
-                                    maxlen= max_tweet_length
-)
-X_validate = sequence.pad_sequences(
-                                    X_validate,
-                                    maxlen= max_tweet_length
-)
-X_test = sequence.pad_sequences(
-                                X_test,
-                                maxlen= max_tweet_length
-)
+max_length_sentence = EMBEDDING_LENGTH
 
 
 
@@ -533,9 +370,9 @@ def create_simple_NN_fit_and_display(train, validate, test, epochs, batch_size):
     model = Sequential()
     model.add(
                 Embedding(
-                            max(train[0].flatten()) + 1,
+                            EMBEDDING_LENGTH,
                             embedding_vector_length,
-                            input_length= max_tweet_length
+                            input_length= len(train[0])
                 )
     )
     model.add(Flatten())
@@ -612,47 +449,64 @@ score = create_simple_NN_fit_and_display(
 
 # %%
 # Create a LSTM, fit it and display some résults
-def create_LSTM_fit_and_display(train, validate, test, epochs, batch_size):
+def create_LSTM_fit_and_display(
+                                train, validate, 
+                                test, 
+                                embed_dim, lstm_out, batch_size,
+                                epochs, verbose
+):
     """Create a LSTM, fit the model and display the results
 
     Args:
         train (turple): (X_train, y_train)
         validate (turple): (X_validate, y_validate)
         test (turple): (X_test, y_test)
-        epochs (int): number of epoch
+        embed_dim (int): number of embed_dim
+        lstm_out (int): number for lstm_out
         batch_size (int): size of the batch
+        epochs (int): number of epochs
+        verbose (int): verbose value
 
     Returns:
         score (float): score on the test
     """
     # Create the neural network
-    embedding_vector_length = 32
+
     model = Sequential()
     model.add(
                 Embedding(
-                            max(train[0].flatten()) + 1,
-                            embedding_vector_length,
-                            input_length= max_tweet_length
+                            len(train[0]), 
+                            embed_dim,
+                            input_length = train.shape[1], 
+                            dropout = 0.2
                 )
     )
-    model.add(Flatten())
-    # 16 is totally arbitrary. Other values can be 
-    # used.
-    model.add(Dense(16, activation= 'relu'))
-    model.add(Dense(16, activation= 'relu'))
-    model.add(Dense(1,  activation= 'sigmoid'))
+    model.add(
+                LSTM(
+                        lstm_out, 
+                        dropout_U= 0.2, 
+                        dropout_W= 0.2
+                )
+    )
+    model.add(
+                Dense(
+                        2,
+                        activation='softmax'
+                )
+    )
     model.compile(
-                    loss= 'binary_crossentropy',
-                    optimizer= 'adam',
-                    metrics= ['accuracy']
+                    loss= 'categorical_crossentropy', 
+                    optimizer='adam',
+                    metrics = ['accuracy']
     )
     print(model.summary())
 
     hist = model.fit(
-                     train[0], train[1],
-                    validation_data= (validate[0], validate[1]),
-                    epochs= epochs,
-                    batch_size= batch_size
+                        train[0], train[1],
+                        validation_data= (validate[0], validate[1]),
+                        epochs= epochs,
+                        batch_size= batch_size,
+                        verbose= verbose
     )
     # Plot the results
     acc = hist.history['accuracy']
@@ -674,5 +528,18 @@ def create_LSTM_fit_and_display(train, validate, test, epochs, batch_size):
     )
     print(f"Accuracy est de {100 * scores[1]:.2f} %")
     return scores
+
+# %%
+# Compute one
+score = create_LSTM_fit_and_display(
+                                    train= (X_train, y_train),
+                                    validate= (X_validate, y_validate),
+                                    test= (X_test, y_test),
+                                    embed_dim= 128,
+                                    lstm_out= 200, 
+                                    epochs= 15,
+                                    batch_size= 128,
+                                    verbose= 5,
+)
 
 # %%
