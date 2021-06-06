@@ -13,7 +13,6 @@ import json
 import sys
 from gensim.models.word2vec import Word2Vec
 from gensim.parsing.preprocessing import remove_stopwords
-from keras.layers import embeddings
 from keras_preprocessing.text import tokenizer_from_json
 from matplotlib.pyplot import ylabel
 import missingno as msno
@@ -50,8 +49,8 @@ from wordcloud import WordCloud
 from keras.preprocessing.text import Tokenizer
 from keras.preprocessing import sequence
 from keras.models import Sequential
-from keras.layers import Dense, Flatten, LSTM
-from keras.layers.embeddings import Embedding
+from keras.layers import Embedding, Dropout, Dense, Flatten, LSTM 
+#from keras.layers.embeddings import Embedding
 
 # %%
 # Define constants
@@ -370,9 +369,9 @@ def create_simple_NN_fit_and_display(train, validate, test, epochs, batch_size):
     model = Sequential()
     model.add(
                 Embedding(
-                            EMBEDDING_LENGTH,
-                            embedding_vector_length,
-                            input_length= len(train[0])
+                            input_dim= max(train[0].flatten()) + 1,
+                            output_dim= embedding_vector_length,
+                            input_length= EMBEDDING_LENGTH
                 )
     )
     model.add(Flatten())
@@ -384,26 +383,26 @@ def create_simple_NN_fit_and_display(train, validate, test, epochs, batch_size):
     model.compile(
                     loss= 'binary_crossentropy',
                     optimizer= 'adam',
-                    metrics= ['accuracy']
+                    metrics= ['AUC']
     )
     print(model.summary())
 
     hist = model.fit(
-                     train[0], train[1],
-                    validation_data= (validate[0], validate[1]),
-                    epochs= epochs,
-                    batch_size= batch_size
+                        train[0], train[1],
+                        validation_data= validate,
+                        epochs= epochs,
+                        batch_size= batch_size
     )
     # Plot the results
-    acc = hist.history['accuracy']
-    val = hist.history['val_accuracy']
-    epochs = range(1, len(acc) + 1)
+    auc = hist.history['auc']
+    val = hist.history['val_auc']
+    epochs = range(1, len(auc) + 1)
 
-    plt.plot(epochs, acc, '-', label= 'Training accuracy')
-    plt.plot(epochs, val, ':', label= 'Validation accuracy')
-    plt.title('Training and Validation Accuracy')
+    plt.plot(epochs, auc, '-', label= 'Training Area Under the Curve')
+    plt.plot(epochs, val, ':', label= 'Validation AUC')
+    plt.title('Training and Validation AUC')
     plt.xlabel('Epoch')
-    plt.ylabel('Accuracy')
+    plt.ylabel('AUC')
     plt.legend(loc='upper left')
     plt.plot()
     plt.show()
@@ -412,7 +411,7 @@ def create_simple_NN_fit_and_display(train, validate, test, epochs, batch_size):
                             test[0], test[1],
                             verbose= 0
     )
-    print(f"Accuracy est de {100 * scores[1]:.2f} %")
+    print(f"AUC est de {100 * scores[1]:.2f} %")
     return scores
 
 # %%
@@ -428,7 +427,7 @@ score = create_simple_NN_fit_and_display(
                                 train= (X_train, y_train),
                                 validate= (X_validate, y_validate),
                                 test= (X_test, y_test),
-                                epochs= 3,
+                                epochs= 4,
                                 batch_size= 128
 )
 score = create_simple_NN_fit_and_display(
@@ -442,7 +441,7 @@ score = create_simple_NN_fit_and_display(
                                 train= (X_train, y_train),
                                 validate= (X_validate, y_validate),
                                 test= (X_test, y_test),
-                                epochs= 2,
+                                epochs= 10,
                                 batch_size= 32
 )
 
@@ -471,21 +470,24 @@ def create_LSTM_fit_and_display(
         score (float): score on the test
     """
     # Create the neural network
-
     model = Sequential()
     model.add(
                 Embedding(
-                            len(train[0]), 
-                            embed_dim,
-                            input_length = train.shape[1], 
-                            dropout = 0.2
+                            input_dim= max(train[0].flatten()) + 1,
+                            output_dim= embed_dim,
+                            input_length= EMBEDDING_LENGTH,
+                )
+    )
+    model.add(
+                Dropout(
+                        rate= 0.2
                 )
     )
     model.add(
                 LSTM(
                         lstm_out, 
-                        dropout_U= 0.2, 
-                        dropout_W= 0.2
+                        recurrent_dropout= 0.2, 
+                        dropout= 0.2
                 )
     )
     model.add(
@@ -497,7 +499,7 @@ def create_LSTM_fit_and_display(
     model.compile(
                     loss= 'categorical_crossentropy', 
                     optimizer='adam',
-                    metrics = ['accuracy']
+                    metrics = ['AUC']
     )
     print(model.summary())
 
@@ -509,18 +511,25 @@ def create_LSTM_fit_and_display(
                         verbose= verbose
     )
     # Plot the results
-    acc = hist.history['accuracy']
-    val = hist.history['val_accuracy']
-    epochs = range(1, len(acc) + 1)
+    auc = hist.history['auc']
+    val = hist.history['val_auc']
+    epochs = range(1, len(auc) + 1)
 
-    plt.plot(epochs, acc, '-', label= 'Training accuracy')
-    plt.plot(epochs, val, ':', label= 'Validation accuracy')
-    plt.title('Training and Validation Accuracy')
+    plt.plot(epochs, auc, '-', label= 'Training Area Under the Curve')
+    plt.plot(epochs, val, ':', label= 'Validation AUC')
+    plt.title('Training and Validation AUC')
     plt.xlabel('Epoch')
-    plt.ylabel('Accuracy')
+    plt.ylabel('AUC')
     plt.legend(loc='upper left')
     plt.plot()
     plt.show()
+
+    scores = model.evaluate(
+                            test[0], test[1],
+                            verbose= 0
+    )
+    print(f"AUC est de {100 * scores[1]:.2f} %")
+    return scores
 
     scores = model.evaluate(
                             test[0], test[1],
