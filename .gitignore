@@ -15,3 +15,15 @@ Détails déploiement/Déploiement - Microsoft.CognitiveServicesTextAnalyticsWit
 data/dict_simple.pkl
 word2vec.model
 .gitignore
+data/GloVe-1.2.zip
+data/glove.twitter.27B.25d.txt
+data/glove.twitter.27B.50d.txt
+data/glove.twitter.27B.100d.txt
+data/glove.twitter.27B.200d.txt
+data/GoogleNews-vectors-negative300.bin.gz
+data/dict_simple.json
+data/Word_2_Figure_Clean.json
+data/word2vec_CBOW.model
+data/word2vec_CBOW.model.syn1neg.npy
+data/word2vec_CBOW.model.wv.vectors.npy
+data/dict_simple.json
