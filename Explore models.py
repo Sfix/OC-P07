@@ -297,7 +297,7 @@ def create_LSTM_fit_and_display(
                                 train, validate, 
                                 test, 
                                 embed_dim, lstm_out, batch_size,
-                                epochs, verbose, embedding= True
+                                epochs, verbose, input_dim= None, embedding= True
 ):
     """Create a LSTM, fit the model and display the results
 
@@ -319,6 +319,8 @@ def create_LSTM_fit_and_display(
     if embedding:
         # Embed each integer in a 128-dimensional vector
         x = Embedding(max(train[0].flatten()) + 1, embed_dim)(inputs)
+    else:
+        x = Embedding(input_dim, embed_dim)(inputs)
     # Add 2 bidirectional LSTMs
     x = Bidirectional(LSTM(64, return_sequences=True))(x)
     x = Bidirectional(LSTM(64))(x)
@@ -695,6 +697,8 @@ for kind_data in data_to_be_tested:
                         epochs= memo_score['parameters'][-1]['epochs'],
                         batch_size= memo_score['parameters'][-1]['batch_size'],
                         verbose= 4,
+                        embedding= False,
+                        input_dim= EMBEDDING_LENGTH
     )
     memo_score['execution_time'].append(time.time() - time_in)
     memo_score['score'].append(score)
@@ -714,6 +718,8 @@ for kind_data in data_to_be_tested:
                         epochs= memo_score['parameters'][-1]['epochs'],
                         batch_size= memo_score['parameters'][-1]['batch_size'],
                         verbose= 4,
+                        embedding= False,
+                        input_dim= EMBEDDING_LENGTH
     )
     memo_score['execution_time'].append(time.time() - time_in)
     memo_score['score'].append(score)
