@@ -27,3 +27,8 @@ data/word2vec_CBOW.model
 data/word2vec_CBOW.model.syn1neg.npy
 data/word2vec_CBOW.model.wv.vectors.npy
 data/dict_simple.json
+proceed_tweets.py
+data/df_tweets.csv
+data/dict_simple.json
+data/df_tweets.pkl
+data/dict_simple.json

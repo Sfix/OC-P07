@@ -236,3 +236,5 @@ df_results = pd.DataFrame(
 )
 df_results.to_pickle(Path('./data')/f"{FILE_DF_RESULTS}.pkl")
 
+# %% [markdown]
+# Présentation des résultats 

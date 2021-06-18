@@ -1,6 +1,6 @@
 # %% [markdown]
 #
-# Notebook du traitement des données pour en faire des data utilisables 
+# Notebook du traitement des données pour en faire des data £utilisables 
 # pour les traitements futures.  
 
 # %%
@@ -164,7 +164,6 @@ df_tweets['pos'] = df_tweets['sentiment_score'].apply(
 df_tweets['neg'] = df_tweets['pos'].apply(lambda x: 0 if x == 1 else 1)
 
 
-
 # %% [markdown]
 # Nous créons les différents type de transformations et les sauvegardons dans
 # des features
@@ -318,13 +317,8 @@ def tweet_to_w2v(sentence, w2v_model, w2v_model_vocab, progress_bar= None):
                 for token in sentence.split(' ')
         ]
     
-
-
-
-
-
 # %%
-# 
+# clean the tweets
 progress_bar = tqdm(
                     total= len(df_tweets),
                     desc= 'treatments',
@@ -340,7 +334,7 @@ df_tweets['clean'] = [
 progress_bar.close()
 
 # %%
-#
+# Word to figure of clean tweets
 tokenizer = word2figure_dict(
                                 df= df_tweets['clean'],
                                 file_name_dict= "Word_2_Figure_Clean.json"
@@ -379,6 +373,11 @@ df_tweets['stem'] = [
 ]
 progress_bar.close()
 
+tokenizer = word2figure_dict(
+                                df= df_tweets['stem'],
+                                file_name_dict= "Word_2_Figure_Stem.json"
+)
+
 progress_bar = tqdm(
                     total= len(df_tweets),
                     desc= 'w2f(stem)',
@@ -409,6 +408,11 @@ df_tweets['lemma'] = [
                         for tweet in df_tweets['clean']
 ]
 progress_bar.close()
+
+tokenizer = word2figure_dict(
+                                df= df_tweets['lemma'],
+                                file_name_dict= "Word_2_Figure_Lemma.json"
+)
 
 progress_bar = tqdm(
                     total= len(df_tweets),
@@ -644,8 +648,28 @@ df_tweets['w2v_Google_lemma'] = [
 ]
 progress_bar.close()
 
+
 # %%
-df_tweets.to_csv(   os.getcwd() + f"\\data\\{FILE_DF_TWEETS}.csv")
+# Create the Train, Validate and Test to do the comparaisons
+df_train = pd.read_pickle(os.getcwd() + f"\\data\\{FILE_DF_TRAIN}.pkl")
+index_train = df_train.index
+df_train_augmented = df_tweets.loc[index_train]
+df_train_augmented.to_pickle(os.getcwd() + f"\\data\\{FILE_DF_TRAIN}-Augmented.pkl")
+
+df_validate = pd.read_pickle(os.getcwd() + f"\\data\\{FILE_DF_VALIDATE}.pkl")
+index_validate = df_validate.index
+df_validate_augmented = df_tweets.loc[index_validate]
+df_validate_augmented.to_pickle(os.getcwd() + f"\\data\\{FILE_DF_VALIDATE}-Augmented.pkl")
+
+df_test = pd.read_pickle(os.getcwd() + f"\\data\\{FILE_DF_TEST}.pkl")
+index_test = df_test.index
+df_test_augmented = df_tweets.loc[index_test]
+df_test_augmented.to_pickle(os.getcwd() + f"\\data\\{FILE_DF_TEST}-Augmented.pkl")
+
+
+# %%
+df_tweets.to_csv(os.getcwd() + f"\\data\\{FILE_DF_TWEETS}.csv")
+
 # %%
 # Save everything
 with open(os.getcwd() + f"\\data\\{FILE_DF_TWEETS}.pkl", 'wb') as file_pickle:
@@ -654,5 +678,3 @@ with open(os.getcwd() + f"\\data\\{FILE_DF_TWEETS}.pkl", 'wb') as file_pickle:
                 file_pickle,
                 protocol= pickle.HIGHEST_PROTOCOL
     )
-
-# %%

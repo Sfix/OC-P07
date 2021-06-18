@@ -2,7 +2,8 @@
 #
 # Notebook du traitement des données par Keras
 # https://docs.microsoft.com/fr-fr/learn/modules/analyze-review-sentiment-with-keras/2-build-and-train-a-neural-network
-#  
+# pour définir le meilleur model à travailler.  
+# 
 
 # %%
 # Import the requiered libraries
@@ -53,16 +54,12 @@ FILE_TWEETS = 'sentiment140\\training.1600000.processed.noemoticon.csv'
 FILE_DF_TRAIN = 'df_train_5000'
 FILE_DF_VALIDATE = 'df_validate_1000'
 FILE_DF_TEST = 'df_test_1000'
-
 FILE_DICTIONARY = 'dict_simple'
 FILE_WORD2VEC_CBOW = "word2vec_CBOW"
 FILE_WORD2VEC_SKIPGRAM = "word2vec_Skip_Gram"
 
 # Compare 
 COMPARE_SOLUTIONS = True
-
-# When prototype COEF = 0.1. Otherwhize = 1
-COEF = 0.1
 
 # Dictionary size
 TOP_WORDS = 5_000
@@ -803,6 +800,7 @@ score = create_LSTM_fit_and_display(
 )
 
 # %%
+# Score new
 score = create_simple_NN_fit_and_display(
                                 train= (X_train, y_train),
                                 validate= (X_validate, y_validate),
@@ -876,3 +874,6 @@ score = fit_and_evaluate(
                             model= w2v_model,
                             test= (X_test, y_test)
 )
+
+# REgarder Streamlit
+# %%
