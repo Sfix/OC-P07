@@ -19,6 +19,7 @@ import json
 import sys
 from gensim.models.keyedvectors import Vocab
 from gensim.models.word2vec import Word2Vec
+from gensim.scripts.glove2word2vec import glove2word2vec
 from gensim.parsing.preprocessing import remove_stopwords
 from keras.backend import dtype
 from keras_preprocessing.text import tokenizer_from_json
@@ -54,6 +55,7 @@ from keras.preprocessing.text import Tokenizer
 from keras.preprocessing import sequence
 from keras.models import Sequential, Model
 from keras.layers import Embedding, Input, Dropout, Dense, Flatten, LSTM, Bidirectional 
+from keras.layers import Conv1D, GlobalMaxPool1D 
 #from keras.layers.embeddings import Embedding
 
 # %%
@@ -62,6 +64,11 @@ FILE_TWEETS = 'sentiment140\\training.1600000.processed.noemoticon.csv'
 FILE_DF_TRAIN = 'df_train_5000-Augmented'
 FILE_DF_VALIDATE = 'df_validate_1000-Augmented'
 FILE_DF_TEST = 'df_test_1000-Augmented'
+
+FILE_DICTIONARY = 'dict_simple'
+FILE_WORD2VEC_CBOW = "w2v_CBOW_model_"
+FILE_WORD2VEC_SKIPGRAM = "w2v_SG_model_"
+FILE_WORD2VEC_GOOGLE= Path('./data/')/"GoogleNews-vectors-negative300.bin.gz"
 
 # Compare 
 COMPARE_SOLUTIONS = True
@@ -129,6 +136,7 @@ REMOVED_STOPWORDS = set(['no', 'not'])
 STOP_WORDS = STOP_WORDS.difference(REMOVED_STOPWORDS)
 
 WORD2VEC_WINDOW = 3
+VERBOSE_VALUE = 0
 
 # %% [markdown]
 # Lit les tweets utilisés pour l'entrainement, la validation et le 
@@ -151,17 +159,6 @@ df_validate = pd.read_pickle(
 # Défini les fonctions qui seront utilisées pour pouvoir tester les
 # solutions avec différents hyperparamètres et choisir la saolution
 # la plus performante. 
-
-# %%
-# Work on a model
-def fit_and_evaluate(model, test):
-    scores = model.evaluate(
-                            test[0], test[1],
-                            verbose= 0
-    )
-    print(f"AUC est de {100 * scores[1]:.2f} %")
-    return scores
-
 
 # %%
 # Create the NN, fit it and display some résults
@@ -201,7 +198,8 @@ def create_simple_NN_fit_and_display(
                         train[0], train[1],
                         validation_data= validate,
                         epochs= epochs,
-                        batch_size= batch_size
+                        batch_size= batch_size,
+                        verbose= VERBOSE_VALUE
     )
     # Plot the results
     auc = hist.history['auc']
@@ -219,7 +217,7 @@ def create_simple_NN_fit_and_display(
 
     scores = model.evaluate(
                             test[0], test[1],
-                            verbose= 0
+                            verbose= VERBOSE_VALUE
     )
     print(f"AUC est de {100 * scores[1]:.2f} %")
     return scores
@@ -268,7 +266,8 @@ def create_simple_NN_fit_and_display(
                         train[0], train[1],
                         validation_data= validate,
                         epochs= epochs,
-                        batch_size= batch_size
+                        batch_size= batch_size,
+                        verbose= VERBOSE_VALUE
     )
     # Plot the results
     auc = hist.history['auc']
@@ -286,7 +285,7 @@ def create_simple_NN_fit_and_display(
 
     scores = model.evaluate(
                             test[0], test[1],
-                            verbose= 0
+                            verbose= VERBOSE_VALUE
     )
     print(f"AUC est de {100 * scores[1]:.2f} %")
     return scores
@@ -297,29 +296,22 @@ def create_LSTM_fit_and_display(
                                 train, validate, 
                                 test, 
                                 embed_dim, lstm_out, batch_size,
-                                epochs, verbose, input_dim= None, embedding= True
+                                epochs, verbose, input_dim= None, 
+                                embedding= True
 ):
-    """Create a LSTM, fit the model and display the results
-
-    Args:
-        train (turple): (X_train, y_train)
-        validate (turple): (X_validate, y_validate)
-        test (turple): (X_test, y_test)
-        embed_dim (int): number of embed_dim
-        lstm_out (int): number for lstm_out
-        batch_size (int): size of the batch
-        epochs (int): number of epochs
-        verbose (int): verbose value
-
-    Returns:
-        score (float): score on the test
-    """
     # Input for variable-length sequences of integers
     inputs = keras.Input(shape=(None,), dtype="int32")
     if embedding:
         # Embed each integer in a 128-dimensional vector
         x = Embedding(max(train[0].flatten()) + 1, embed_dim)(inputs)
     else:
+        x = Embedding(
+                        input_dim= input_dim,
+                        output_dim= 32,
+                        input_length= EMBEDDING_LENGTH
+                    )
+        x = Flatten()
+
         x = Embedding(input_dim, embed_dim)(inputs)
     # Add 2 bidirectional LSTMs
     x = Bidirectional(LSTM(64, return_sequences=True))(x)
@@ -332,14 +324,14 @@ def create_LSTM_fit_and_display(
                     optimizer= 'adam',
                     metrics= ['AUC']
     )
-#    model.summary()
+    # model.summary()
 
     hist = model.fit(
                         train[0], train[1],
                         validation_data= (validate[0], validate[1]),
                         epochs= epochs,
                         batch_size= batch_size,
-                        verbose= verbose
+                        verbose= VERBOSE_VALUE
     )
     # Plot the results
     auc = hist.history['auc']
@@ -357,7 +349,7 @@ def create_LSTM_fit_and_display(
 
     scores = model.evaluate(
                             test[0], test[1],
-                            verbose= 0
+                            verbose= VERBOSE_VALUE
     )
     print(f"AUC est de {100 * scores[1]:.2f} %")
     return scores
@@ -377,11 +369,11 @@ def create_Glove_fit_and_display(
 ):
     layer_indices = Input(input_shape)
     embeddings = embedding_layer(layer_indices)
-    x = LSTM(128, return_sequences=True)(embeddings)
+    x = LSTM(64, return_sequences=True)(embeddings) #128
     x = Dropout(0.6)(x)
-    x = LSTM(128, return_sequences=True)(x)
+    x = LSTM(64, return_sequences=True)(x)
     x = Dropout(0.6)(x)
-    x = LSTM(128)(x)
+    x = LSTM(64)(x)
     x = Dense(1, activation='sigmoid')(x)
     model = Model(inputs= layer_indices, outputs= x)
 
@@ -416,30 +408,33 @@ def create_Glove_fit_and_display(
 
     scores = model.evaluate(
                             test[0], test[1],
-                            verbose= 0
+                            verbose= VERBOSE_VALUE
     )
     print(f"AUC est de {100 * scores[1]:.2f} %")
     return scores
 
-
-# %%
-# Read the glove vector
-glove_file = os.getcwd() + '\\data\\glove.twitter.27B.50d.txt' 
-with open(glove_file, 'r', encoding= 'UTF-8') as file_handler:
-    words = set()
-    word_to_vec_glove_vector = {}
-    for line in file_handler:
-        w_line = line.split()
-        curr_word = w_line[0]
-        word_to_vec_glove_vector[curr_word] = np.array(w_line[1:], dtype=np.float64)
-glove_embed_vector_len = word_to_vec_glove_vector['moon'].shape[0]
-logging.info("Glove chargé et le vecteur est réalisé.")
 
 
 # %% [markdown]
 # Nous testons différentes solutions pour voir les résultats. En 
 # premier nous testons les Word 2 Figure, puis les Word 2 Vec et
 # enfin Glove 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # %%
 # Loop on the Word 2 Figure
@@ -530,7 +525,7 @@ for kind_data in data_to_be_tested:
                         lstm_out= 200, 
                         epochs= memo_score['parameters'][-1]['epochs'],
                         batch_size= memo_score['parameters'][-1]['batch_size'],
-                        verbose= 4,
+                        verbose= VERBOSE_VALUE,
     )
     memo_score['execution_time'].append(time.time() - time_in)
     memo_score['score'].append(score)
@@ -549,11 +544,12 @@ for kind_data in data_to_be_tested:
                         lstm_out= 200, 
                         epochs= memo_score['parameters'][-1]['epochs'],
                         batch_size= memo_score['parameters'][-1]['batch_size'],
-                        verbose= 4,
+                        verbose= VERBOSE_VALUE,
     )
     memo_score['execution_time'].append(time.time() - time_in)
     memo_score['score'].append(score)
     logging.info(f"LSTM {kind_data} 32 fait en {memo_score['execution_time'][-1]}")
+progress_bar.close()    
 logging.info("Fin de travail surles word 2 figure")
 
 
@@ -572,158 +568,167 @@ logging.info("Fin de travail surles word 2 figure")
 
 
 
-
-
+# %%
+# Function to turn the w2v vector into the entry for the Neurol network
+def build_word_vector(tokens, w2v_model):
+    try:
+        w2v_model = w2v_model.wv
+    except:
+        pass
+    size = len(w2v_model[w2v_model.index_to_key[0]])
+    vec = np.zeros(size).reshape((1, size))
+    count = 0.
+    for word in tokens:
+        try:
+            vec += w2v_model[word].reshape((1, size))
+            count += 1.
+        except KeyError: # handling the case where the token is not
+                         # in the corpus. useful for testing.
+            continue
+    if count != 0:
+        vec /= count
+    return vec
 
 # %%
 # Loop on the Word 2 Vec
-logging.info("Travaille avec les word 2 vec")
-data_to_be_tested = [
-                        'w2v_CBOW_clean', 
-                        'w2v_CBOW_stem',
-                        'w2v_CBOW_lemma', 
-                        'w2v_SG_clean', 
-                        'w2v_SG_stem', 
-                        'w2v_SG_lemma',
-                        'w2v_Google_clean', 
-                        'w2v_Google_stem', 
-                        'w2v_Google_lemma'
+logging.info("Travaille direct avec les word 2 vec")
+model_to_be_tested = [
+                        'CBOW',
+                        'Skip-Gram',
+                        'Google',
+                        'Glove',
 ]
-progress_bar = tqdm(
-                    total= len(data_to_be_tested),
-                    desc= 'Tests models',
-                    leave= False
+data_to_be_tested = [
+                        'clean', 
+                        'stem',
+                        'lemma', 
+]
+progress_bar_model = tqdm(
+                            total= len(model_to_be_tested),
+                            desc= 'Models',
+                            leave= False
 )
-for kind_data in data_to_be_tested:
-    progress_bar.update()
 
-    print(f"Nous travaillons sur {kind_data}")
-    def pad_sentence(sentence, length):
-        tmp = [0] * (length - len(sentence)) + [x for x in sentence]
-        return np.asarray(tmp, dtype= np.float32).astype(np.float32)
-    X_train = np.asarray(
-                            [
-                                pad_sentence(
-                                            sentence= sentence,
-                                            length= EMBEDDING_LENGTH
-                                )
-                                for sentence in df_train[kind_data]
-                            ],
-                            dtype= np.ndarray
-    ).astype(np.float32)
-    X_validate = np.asarray(
-                            [
-                                pad_sentence(
-                                                sentence= sentence,
-                                                length= EMBEDDING_LENGTH
-                                )
-                                for sentence in df_validate[kind_data]
-                            ],
-                            dtype= np.ndarray
-    ).astype(np.float32)
-    X_test = np.asarray(
-                            [
-                                pad_sentence(
-                                            sentence= sentence,
-                                            length= EMBEDDING_LENGTH
-                                )
-                                for sentence in df_test[kind_data]
-                            ],
-                            dtype= np.ndarray
-    ).astype(np.float32)
-    input_dim = len(set(
-                        X_train.flatten()
-                    ).union(
-                            set(
-                                X_validate.flatten()
-                            ).union(
-                                    X_test.flatten()
-                            )
-                    )
+# Loop on the 2 ways to create Word2Vec
+for model in model_to_be_tested:
+    logging.info(f"{model}")
+    progress_bar_model.update()
+    progress_bar = tqdm(
+                        total= len(data_to_be_tested),
+                        desc= 'Tests models',
+                        leave= False
     )
-    y_train = df_train['neg'].values
-    y_validate = df_validate['neg'].values
-    y_test = df_test['neg'].values
-    logging.info("X,y sont faits")
+    # We do not need to read twice models that are computed on 
+    # generic data
+    model_loaded = False
+    # Loop on the kind of data we have
+    for kind_data in data_to_be_tested:
+        logging.info(f"{kind_data}")
+        progress_bar.update()
+        if model == 'CBOW':
+            w2v_model = Word2Vec.load(
+                    f"{os.getcwd()}\data\{FILE_WORD2VEC_CBOW}{kind_data}.model"
+            )
+        elif model == 'Skip-Gram':
+            w2v_model = Word2Vec.load(
+                    f"{os.getcwd()}\data\{FILE_WORD2VEC_SKIPGRAM}{kind_data}.model"
+            )
+        elif model == 'Google':
+            if not model_loaded:
+                w2v_model = gensim.models.KeyedVectors.load_word2vec_format(
+                                                            FILE_WORD2VEC_GOOGLE,
+                                                            binary=True
+                )
+                model_loaded = True
+        else:
+            if not model_loaded:
+                w2v_model = gensim.models.KeyedVectors.load_word2vec_format(
+                                Path('./data/')/'glove.twitter.27B.50d.txt',
+                                binary= False,
+                                no_header= True
+                )
+                model_loaded = True
 
-    logging.info(f"Simple {kind_data} 128")
-    memo_score['data_kind'].append(kind_data)
-    memo_score['model'].append('Simple')
-    memo_score['parameters'].append({'epochs' : 100, 'batch_size' : 128})
-    time_in = time.time()
-    score = create_simple_NN_fit_and_display(
-                        train= (X_train, y_train),
-                        validate= (X_validate, y_validate),
-                        test= (X_test, y_test),
-                        epochs= memo_score['parameters'][-1]['epochs'],
-                        batch_size= memo_score['parameters'][-1]['batch_size'],
-                        input_dim= EMBEDDING_LENGTH,
-                        embedding= False
-    )
-    memo_score['execution_time'].append(time.time() - time_in)
-    memo_score['score'].append(score)
-    logging.info(f"Simple {kind_data} 128 fait en {memo_score['execution_time'][-1]}")
+        logging.info(f'Le fichier du model w2v {model} pour {kind_data} chargé.')
+        try:
+            w2v_model = w2v_model.wv
+        except:
+            pass
 
-    logging.info(f"Simple {kind_data} 32")
-    memo_score['data_kind'].append(kind_data)
-    memo_score['model'].append('Simple')
-    memo_score['parameters'].append({'epochs' : 20, 'batch_size' : 32})
-    time_in = time.time()
-    score = create_simple_NN_fit_and_display(
-                        train= (X_train, y_train),
-                        validate= (X_validate, y_validate),
-                        test= (X_test, y_test),
-                        epochs= memo_score['parameters'][-1]['epochs'],
-                        batch_size= memo_score['parameters'][-1]['batch_size'],
-                        input_dim= EMBEDDING_LENGTH,
-                        embedding= False
-    )
-    memo_score['execution_time'].append(time.time() - time_in)
-    memo_score['score'].append(score)
-    logging.info(f"Simple {kind_data} 32 fait en {memo_score['execution_time'][-1]}")
+        X_train = np.concatenate(
+                        [
+                            build_word_vector(
+                                                tokens, 
+                                                w2v_model
+                            ) 
+                            for tokens in map(
+                                                lambda x: x.split(),
+                                                df_train[kind_data]
+                                            )
+                        ]
+        )
+        X_validate = np.concatenate(
+                        [
+                            build_word_vector(
+                                                tokens, 
+                                                w2v_model
+                            ) 
+                            for tokens in map(
+                                                lambda x: x.split(),
+                                                df_validate[kind_data]
+                                          )
+                        ]
+        )
+        X_test = np.concatenate(
+                        [
+                            build_word_vector(
+                                                tokens, 
+                                                w2v_model
+                            ) 
+                            for tokens in map(
+                                                lambda x: x.split(),
+                                                df_test[kind_data]
+                                            )
+                        ]
+        )
+        y_train = df_train['neg'].values
+        y_validate = df_validate['neg'].values
+        y_test = df_test['neg'].values
+        logging.info("X,y sont faits")
 
-    # Compute LSTM
-    logging.info(f"LSTM {kind_data} 128")
-    memo_score['data_kind'].append(kind_data)
-    memo_score['model'].append('LSTM')
-    memo_score['parameters'].append({'epochs' : 20, 'batch_size' : 128})
-    time_in = time.time()
-    score = create_LSTM_fit_and_display(
-                        train= (X_train, y_train),
-                        validate= (X_validate, y_validate),
-                        test= (X_test, y_test),
-                        embed_dim= 128,
-                        lstm_out= 200, 
-                        epochs= memo_score['parameters'][-1]['epochs'],
-                        batch_size= memo_score['parameters'][-1]['batch_size'],
-                        verbose= 4,
-                        embedding= False,
-                        input_dim= EMBEDDING_LENGTH
-    )
-    memo_score['execution_time'].append(time.time() - time_in)
-    memo_score['score'].append(score)
-    logging.info(f"LSTM {kind_data} 128 fait en {memo_score['execution_time'][-1]}")
+        for batch_size in [128, 32]:
+            logging.info(f"Simple {kind_data} {batch_size}")
+            memo_score['data_kind'].append(kind_data)
+            memo_score['model'].append('Simple')
+            memo_score['parameters'].append(
+                                            {
+                                                'epochs' : 50, 
+                                                'batch_size' : batch_size
+                                            }
+            )
+            time_in = time.time()
+            score = create_simple_NN_fit_and_display(
+                                train= (X_train, y_train),
+                                validate= (X_validate, y_validate),
+                                test= (X_test, y_test),
+                                epochs= memo_score['parameters'][-1]['epochs'],
+                                batch_size= memo_score['parameters'][-1]['batch_size'],
+                                input_dim= len(w2v_model['love']),
+                                embedding= False
+            )
+            memo_score['execution_time'].append(time.time() - time_in)
+            memo_score['score'].append(score)
+            logging.info(f"Simple {kind_data} 128 fait en {memo_score['execution_time'][-1]}")
+    progress_bar.close()    
+progress_bar_model.close()
+logging.info('Fin de travail direct avec W2V')
 
-    logging.info(f"LSTM {kind_data} 32")
-    memo_score['data_kind'].append(kind_data)
-    memo_score['model'].append('LSTM')
-    memo_score['parameters'].append({'epochs' : 20, 'batch_size' : 32})
-    time_in = time.time()
-    score = create_LSTM_fit_and_display(
-                        train= (X_train, y_train),
-                        validate= (X_validate, y_validate),
-                        test= (X_test, y_test),
-                        embed_dim= 128,
-                        lstm_out= 200, 
-                        epochs= memo_score['parameters'][-1]['epochs'],
-                        batch_size= memo_score['parameters'][-1]['batch_size'],
-                        verbose= 4,
-                        embedding= False,
-                        input_dim= EMBEDDING_LENGTH
-    )
-    memo_score['execution_time'].append(time.time() - time_in)
-    memo_score['score'].append(score)
-    logging.info(f"LSTM {kind_data} 32 fait en {memo_score['execution_time'][-1]}")
+
+
+
+
+
+
 
 
 
@@ -758,83 +763,239 @@ for kind_data in data_to_be_tested:
 
 
 # %%
-# Loop on the tokens for Glove
-logging.info("Travaille les Word 2 Vec")
+# Loop on the Word 2 Vec method LSTM
+logging.info("Travaille direct avec les word 2 vec")
+model_to_be_tested = [
+                        'CBOW',
+                        'Skip-Gram',
+                        'Google',
+                        'Glove'
+]
 data_to_be_tested = [
                         'clean', 
-                        'stem', 
-                        'lemma'
+                        'stem',
+                        'lemma', 
 ]
-for data_kind in data_to_be_tested:
-    # Create the X_
-    # Compute the Glove
-    logging.info(f"Glove {kind_data}")
-    X_train = df_train[kind_data]
-    vocab_len = len(
-                    set(
-                        [x for x in X_train]
-                    ).union(
-                            set(
-                                X_validate.flatten()
-                            ).union(
-                                    set(
-                                        X_test.flatten()
-                                    )
-                            )
-                    ) 
-    )
-    emb_matrix = np.zeros((vocab_len, glove_embed_vector_len))
+progress_bar_model = tqdm(
+                            total= len(model_to_be_tested),
+                            desc= 'Models',
+                            leave= False
+)
+
+# Loop on the 2 ways to create Word2Vec
+for kind_model in model_to_be_tested:
+    progress_bar_model.update()
     progress_bar = tqdm(
-                        total= len(word_to_vec_glove_vector.item()),
-                        desc= 'glove',
+                        total= len(data_to_be_tested),
+                        desc= 'Tests models',
                         leave= False
     )
-    for word, index in word_to_vec_glove_vector.items():
+    # We do not have to load the model when it is not dependent on
+    # the data set
+    model_loaded = False
+    # Loop on the kind of data we have
+    for kind_data in data_to_be_tested:
         progress_bar.update()
-        embedding_vector = word_to_vec_glove_vector.get(word)
-        if embedding_vector is not None:
-            emb_matrix[index, :] = embedding_vector
-    progress_bar.close()
+        if kind_model == 'CBOW':
+            w2v_model = Word2Vec.load(
+                    f"{os.getcwd()}\data\{FILE_WORD2VEC_CBOW}{kind_data}.model"
+            )
+        elif kind_model == 'Skip-Gram':
+            w2v_model = Word2Vec.load(
+                    f"{os.getcwd()}\data\{FILE_WORD2VEC_SKIPGRAM}{kind_data}.model"
+            )
+        elif kind_model == 'Google':
+            if not model_loaded:
+                w2v_model = gensim.models.KeyedVectors.load_word2vec_format(
+                                                            FILE_WORD2VEC_GOOGLE,
+                                                            binary=True
+                )
+            model_loaded = True
+        else:
+            if not model_loaded:
+                w2v_model = gensim.models.KeyedVectors.load_word2vec_format(
+                        Path('./data/')/'glove.twitter.27B.50d.txt',
+                        binary= False,
+                        no_header= True
+                )
+            model_loaded = True
 
-    embedding_layer = Embedding(
-                                input_dim= vocab_len,
-                                output_dim= glove_embed_vector_len,
-                                input_length= EMBEDDING_LENGTH,
-                                weights= [emb_matrix],
+        logging.info(f'Le fichier du model w2v {kind_model} pour {kind_data} chargé.')
+
+        try:
+            w2v_model = w2v_model.wv
+        except:
+            pass
+        def tokens_to_figures_of_w2v(tokens, w2v_model):
+            tmp = [
+                    w2v_model.key_to_index[token] + 3
+                    if token in w2v_model.index_to_key else 2
+                    for token in tokens
+            ] 
+            return [0] + tmp + [1]
+
+        tmp = [ 
+                tokens_to_figures_of_w2v(
+                                            tokens= sentence.split(), 
+                                            w2v_model=w2v_model
+                )
+                for sentence in df_train[kind_data]
+        ]
+        X_train = sequence.pad_sequences(
+                                            sequences= tmp,
+                                            maxlen= EMBEDDING_LENGTH,
+                                            padding= 'post'
+        )
+        tmp = [ 
+                tokens_to_figures_of_w2v(
+                                            tokens= sentence.split(), 
+                                            w2v_model=w2v_model
+                )
+                for sentence in df_validate[kind_data]
+        ]
+        X_validate = sequence.pad_sequences(
+                                            sequences= tmp,
+                                            maxlen= EMBEDDING_LENGTH,
+                                            padding= 'post'
+        )
+        tmp = [ 
+                tokens_to_figures_of_w2v(
+                                            tokens= sentence.split(), 
+                                            w2v_model=w2v_model
+                )
+                for sentence in df_test[kind_data]
+        ]
+        X_test = sequence.pad_sequences(
+                                        sequences= tmp,
+                                        maxlen= EMBEDDING_LENGTH,
+                                        padding= 'post'
+        )
+        y_train = df_train['neg'].values
+        y_validate = df_validate['neg'].values
+        y_test = df_test['neg'].values
+        logging.info("X,y sont faits")
+
+        # Compute LSTM
+        for batch_size in [128, 32]:
+            logging.info(f"LSTM {kind_data} {batch_size}")
+            memo_score['data_kind'].append(kind_data)
+            memo_score['model'].append('LSTM')
+            memo_score['parameters'].append(
+                                            {
+                                                'epochs' : 20, 
+                                                'batch_size' : batch_size
+                                            }
+            )
+            EMBEDDING_DIMENSION = 100
+            embedding_matrix = np.zeros(
+                                    (
+                                    len(w2v_model.index_to_key) + 3,
+                                    len(w2v_model['love'])
+                                    )
+            )
+            for word, token in w2v_model.key_to_index.items():
+                if w2v_model.__contains__(word):
+                    embedding_matrix[token + 3] = w2v_model.__getitem__(word)
+            embedding_layer = Embedding(
+                                input_dim= len(w2v_model.key_to_index) + 3,
+                                output_dim= embedding_matrix.shape[1],
+                                weights= [embedding_matrix],
+                                input_length= len(X_train[0]),
                                 trainable= False
-    )
+            )
 
-    memo_score['data_kind'].append(kind_data)
-    memo_score['model'].append('Glove')
-    memo_score['parameters'].append({'epochs' : 15, 'batch_size' : 128})
-    time_in = time.time()
-    score = create_Glove_fit_and_display(
-                        train= (X_train, y_train),
-                        validate= (X_validate, y_validate),
-                        test= (X_test, y_test),
-                        epochs= memo_score['parameters'][-1]['epochs'],
-                        batch_size= memo_score['parameters'][-1]['batch_size'],
-                        input_shape= (None,),
-                        embedding_layer= embedding_layer
-    )
-    memo_score['execution_time'].append(time.time() - time_in)
-    memo_score['score'].append(score)
+            model = Sequential(
+                                layers= [
+                                        embedding_layer,
+                                        Bidirectional(
+                                                LSTM(
+                                                        64,
+                                                        dropout= 0.3,
+                                                        return_sequences= True
+                                                )
+                                        ),
+                                        Bidirectional(
+                                                LSTM(
+                                                        64,
+                                                        dropout= 0.3,
+                                                        return_sequences= True
+                                                )
+                                        ),
+                                        Conv1D(
+                                                100,
+                                                5,
+                                                activation= 'relu'
+                                        ),
+                                        GlobalMaxPool1D(),
+                                        Dense(
+                                                16, 
+                                                activation= 'relu'
+                                        ),
+                                        Dense(
+                                                1, 
+                                                activation='sigmoid'
+                                        ),
+                            ],
+                            name= "Sentiment_Model"
+            )
+            model.compile(
+                            loss= 'binary_crossentropy', 
+                            optimizer= 'adam', 
+                            metrics= ['AUC']
+            )
+            time_in = time.time()
+            history = model.fit(
+                                X_train, y_train,
+                                validation_data= (X_validate, y_validate),
+                                batch_size= memo_score['parameters'][-1]['batch_size'],
+                                epochs= memo_score['parameters'][-1]['epochs'],
+                                verbose= VERBOSE_VALUE,
+                            )
+            # Plot the results
+            auc = history.history['auc']
+            val = history.history['val_auc']
+            epochs = range(1, len(auc) + 1)
 
-    memo_score['data_kind'].append(kind_data)
-    memo_score['model'].append('Glove')
-    memo_score['parameters'].append({'epochs' : 15, 'batch_size' : 32})
-    time_in = time.time()
-    score = create_Glove_fit_and_display(
-                        train= (X_train, y_train),
-                        validate= (X_validate, y_validate),
-                        test= (X_test, y_test),
-                        epochs= memo_score['parameters'][-1]['epochs'],
-                        batch_size= memo_score['parameters'][-1]['batch_size'],
-                        input_shape= (None,),
-                        embedding_layer= embedding_layer,
-    )
-    memo_score['execution_time'].append(time.time() - time_in)
-    memo_score['score'].append(score)
+            plt.plot(epochs, auc, '-', label= 'Training Area Under the Curve')
+            plt.plot(epochs, val, ':', label= 'Validation AUC')
+            plt.title('Training and Validation AUC')
+            plt.xlabel('Epoch')
+            plt.ylabel('AUC')
+            plt.legend(loc='upper left')
+            plt.plot()
+            plt.show()
+
+            scores = model.evaluate(
+                                    X_test, y_test,
+                                    verbose= VERBOSE_VALUE
+            )
+            print(f"AUC est de {100 * scores[1]:.2f} %")
+
+            memo_score['execution_time'].append(time.time() - time_in)
+            memo_score['score'].append(scores)
+            logging.info(f"LSTM {kind_data} {batch_size} fait en {memo_score['execution_time'][-1]}")
+    progress_bar.close()    
+progress_bar_model.close()
+logging.info("fin des W2V en LSTM")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # %% [markdown]
 # Nous avons maintenant une comparaison des différentes solutions. 
@@ -844,34 +1005,3 @@ for data_kind in data_to_be_tested:
 
 
 
-
-# %%
-# Other implementation of Glove
-from gensim.scripts.glove2word2vec import glove2word2vec
-from gensim.models import KeyedVectors
-
-glove2word2vec(
-                Path('./data/')/'glove.twitter.27B.50d.txt',
-                word2vec_output_file= 
-                        Path('./data/')/'glove.twitter.27B.50d.txt.word2vec'
-)
-
-w2v_model = glove2word2vec.load_word2vec_format(
-                        Path('./data/')/'glove.twitter.27B.50d.txt.word2vec',
-                        binary= False
-)
-score = w2v_model.evaluate(
-                            df_test['clean'], df_test['neg']
-)
-print(f"AUC est de {100 * score[1]:.2f} %")
-score = w2v_model.evaluate(
-                            df_test['stem'], df_test['neg']
-)
-print(f"AUC est de {100 * score[1]:.2f} %")
-score = w2v_model.evaluate(
-                            df_test['lemma'], df_test['neg']
-)
-print(f"AUC est de {100 * score[1]:.2f} %")
-
-# REgarder Streamlit
-# %%
